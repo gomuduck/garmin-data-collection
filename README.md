@@ -12,7 +12,7 @@ Automatically collects daily sleep, HRV, recovery, and running data from Garmin 
 - Retries transient failures three times and automatically runs a second recovery pass at 9 AM
 - Collects sleep + HRV data for yesterday and today from Garmin Connect
 - Collects the last 30 days of running, treadmill, and trail-running activities
-- Writes/updates rows in the `Daily` and `Runs` tabs of a Google Sheet
+- Writes/updates rows in the `Daily`, `Runs`, and `Run Splits` tabs of a Google Sheet
 - Regenerates an interactive Plotly chart and publishes it to GitHub Pages
 
 ---
@@ -24,6 +24,7 @@ GitHub Actions (daily, 7 AM UTC)
     │
     ├── collect.py          → Garmin Connect API → Google Sheets (Daily tab)
     ├── collect_runs.py     → Garmin Connect API → Google Sheets (Runs tab)
+    ├── collect_run_details.py → Garmin Connect API → Google Sheets (Run Splits tab)
     │
     └── garmin_sleep_consistency.py
             │
@@ -32,7 +33,7 @@ GitHub Actions (daily, 7 AM UTC)
                     └── docs/sleep_consistency.html → GitHub Pages
 ```
 
-The Garmin API is called only by the two daily collection steps. All plotting scripts read from Google Sheets so there are no redundant API calls.
+The Garmin API is called only by the daily collection steps. All plotting scripts read from Google Sheets so there are no redundant API calls.
 
 ---
 
@@ -197,7 +198,9 @@ column mapping before any activity rows are written.
 | Column | Owner | Description |
 |---|---|---|
 | `date` | Garmin | Activity date in Australia/Brisbane |
+| `activity_id` | Garmin | Stable Garmin activity identifier |
 | `activity_name` | Garmin | Garmin activity name |
+| `garmin_url` | Garmin | Clickable Garmin Connect activity URL |
 | `session_type` | Manual/planning | Left blank for new Garmin rows |
 | `distance_km` | Garmin | Distance in kilometres |
 | `duration_min` | Garmin | Duration in minutes |
@@ -213,9 +216,19 @@ column mapping before any activity rows are written.
 
 Activities are filtered to `running`, `treadmill_running`, and `trail_running`.
 Rows are matched using local date plus distance, so rerunning the workflow does
-not duplicate the same activity. If two activities share both values, the
-current sheet schema cannot distinguish them; adding a Garmin activity ID later
-would make that key fully stable.
+not duplicate the same activity. The stable Garmin activity ID and URL are also
+stored for drill-down.
+
+### Run Splits tab
+
+The workflow fetches Garmin lap/split data for the last 30 days and creates the
+`Run Splits` tab automatically if needed. It includes distance, duration, pace,
+heart rate, cadence, elevation gain, and Garmin's workout segment label when
+available. Segment labels such as `warmup`, `interval`, `recovery`, and
+`cooldown` are preserved; blank means Garmin did not label that lap, rather than
+the sync guessing incorrectly. Rows are matched by activity ID plus split number.
+This gives the coach detailed pacing without putting raw GPS points into the
+main `Runs` tab; open `garmin_url` for the route map.
 
 ## Adding new plots
 

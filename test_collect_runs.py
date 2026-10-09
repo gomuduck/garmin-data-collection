@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from collect_run_details import normalize_split
 from collect_runs import normalize_activity, sync_runs
 
 
@@ -20,7 +21,9 @@ def test_normalize_activity_converts_units_and_brisbane_date() -> None:
 
     assert normalize_activity(activity) == {
         "date": "2026-10-09",
+        "activity_id": "",
         "activity_name": "Threshold",
+        "garmin_url": "",
         "session_type": "",
         "distance_km": 10.0,
         "duration_min": 45.0,
@@ -78,3 +81,36 @@ def test_sync_runs_preserves_manual_fields_and_is_idempotent() -> None:
     assert len(sheet.rows) == 2
     assert sheet.rows[1][7:11] == ["8", "182", "Shoes A", "Good threshold"]
     assert sheet.rows[1][5:7] == ["165", "178"]
+
+
+def test_normalize_split_keeps_garmin_lap_metrics_and_segment_label() -> None:
+    split = normalize_split(
+        activity_id="123",
+        activity_date="2026-10-09",
+        activity_name="Threshold",
+        split_number=2,
+        raw={
+            "distance": 1000,
+            "duration": 270,
+            "averageHR": 168,
+            "maxHR": 176,
+            "averageRunCadence": 184,
+            "elevationGain": 4,
+            "purposeTypeKey": "INTERVAL",
+        },
+    )
+
+    assert split == {
+        "activity_id": "123",
+        "date": "2026-10-09",
+        "activity_name": "Threshold",
+        "split_number": 2,
+        "segment_type": "interval",
+        "distance_km": 1.0,
+        "duration_min": 4.5,
+        "pace_min_km": 4.5,
+        "avg_hr_bpm": 168,
+        "max_hr_bpm": 176,
+        "cadence_spm": 184,
+        "elevation_gain_m": 4,
+    }
