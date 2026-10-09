@@ -7,6 +7,7 @@ concurrency:
 on:
   schedule:
     - cron: '0 22 * * *'  # 8 AM Australia/Brisbane (UTC+10)
+    - cron: '0 23 * * *'  # 9 AM recovery run if the first run was flaky
   workflow_dispatch:       # allow manual trigger from GitHub UI
 
 jobs:
@@ -33,7 +34,13 @@ jobs:
           chmod 600 ~/.garminconnect/garmin_tokens.json
 
       - name: Sync Garmin sleep and HRV → Google Sheets
-        run: python collect.py
+        run: |
+          for attempt in 1 2 3; do
+            python collect.py && exit 0
+            echo "Sleep/HRV sync attempt ${attempt} failed; retrying in 20 seconds..."
+            sleep 20
+          done
+          exit 1
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
@@ -41,7 +48,13 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
       - name: Sync Garmin runs → Google Sheets
-        run: python collect_runs.py
+        run: |
+          for attempt in 1 2 3; do
+            python collect_runs.py && exit 0
+            echo "Runs sync attempt ${attempt} failed; retrying in 20 seconds..."
+            sleep 20
+          done
+          exit 1
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
@@ -49,7 +62,13 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
       - name: Generate charts
-        run: python garmin_sleep_consistency.py
+        run: |
+          for attempt in 1 2 3; do
+            python garmin_sleep_consistency.py && exit 0
+            echo "Chart generation attempt ${attempt} failed; retrying in 20 seconds..."
+            sleep 20
+          done
+          exit 1
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
@@ -61,3 +80,10 @@ jobs:
           git add docs/
           git diff --staged --quiet || git commit -m "Update charts [skip ci]"
           git push
+
+      - name: Recovery information
+        if: failure()
+        run: |
+          echo "::error::Garmin sync failed after three in-job attempts."
+          echo "The scheduled recovery run starts one hour later at 9 AM Australia/Brisbane."
+          echo "If both runs fail, open this workflow run's logs and use Actions > Run workflow after fixing the reported cause."
