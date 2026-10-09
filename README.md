@@ -9,6 +9,7 @@ Automatically collects daily sleep, HRV, recovery, and running data from Garmin 
 ## What it does
 
 - Runs daily via GitHub Actions at 8 AM Australia/Brisbane time
+- Retries transient failures three times and automatically runs a second recovery pass at 9 AM
 - Collects sleep + HRV data for yesterday and today from Garmin Connect
 - Collects the last 30 days of running, treadmill, and trail-running activities
 - Writes/updates rows in the `Daily` and `Runs` tabs of a Google Sheet
@@ -122,6 +123,15 @@ https://<your-username>.github.io/<your-repo>/sleep_consistency.html
 ### 8. Test the workflow
 
 Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and verify both steps complete successfully.
+
+### Recovery path
+
+Each collection and chart step retries three times with a short backoff. The
+workflow also runs automatically at 9 AM Australia/Brisbane as a recovery pass
+for failures at 8 AM. Writes are idempotent: reruns update the same date/run
+record, preserve `rpe_1_10`, `shoes`, and `notes`, and do not create duplicate
+activities. If both scheduled passes fail, open the failed run under **Actions**
+to read the exact error, then use **Run workflow** after correcting the cause.
 
 ---
 
