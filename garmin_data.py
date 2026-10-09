@@ -15,7 +15,7 @@ from google.oauth2.service_account import Credentials
 
 load_dotenv()
 
-LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
+LOCAL_TZ = ZoneInfo("Australia/Brisbane")
 SPREADSHEET_ID = os.environ["SPREADSHEET_ID"]
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
@@ -51,11 +51,11 @@ def _float(value: str | int | float | None) -> float | None:
 
 def fetch_sleep_data(days: int = 30) -> list[dict]:
     """
-    Read the last `days` days of sleep data from the Sleep sheet.
+    Read the last `days` days of sleep data from the Daily sheet.
     Returns a list of dicts, oldest first, skipping days with no sleep recorded.
     """
     gc = get_sheets_client()
-    sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Sleep")
+    sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Daily")
     records = sheet.get_all_records()
 
     rows = []

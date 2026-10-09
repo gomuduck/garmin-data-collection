@@ -10,9 +10,9 @@ from google.oauth2.service_account import Credentials
 load_dotenv()
 
 TOKEN_STORE = os.path.expanduser("~/.garminconnect")
-LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
+LOCAL_TZ = ZoneInfo("Australia/Brisbane")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
-SHEET_NAME = "Sleep"
+SHEET_NAME = "Daily"
 
 
 def ms_gmt_to_local_str(ts_ms: int | None) -> str | None:
@@ -108,11 +108,14 @@ def upsert_rows(sheet: gspread.Worksheet, rows: list[dict]) -> None:
 
 def main():
     # --- Garmin ---
-    client = Garmin()
+    client = Garmin(
+        email=os.environ.get("GARMIN_EMAIL"),
+        password=os.environ.get("GARMIN_PASSWORD"),
+    )
     client.login(TOKEN_STORE)
     print(f"Authenticated as: {client.get_full_name()}\n")
 
-    today = date.today()
+    today = datetime.now(LOCAL_TZ).date()
     yesterday = today - timedelta(days=1)
 
     rows = []
