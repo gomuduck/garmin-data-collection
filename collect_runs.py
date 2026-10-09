@@ -19,7 +19,7 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 SHEET_NAME = "Runs"
 RUN_TYPES = {"running", "treadmill_running", "trail_running"}
 REQUIRED_HEADERS = {"date", "session_type", "distance_km", "duration_min", "avg_pace_min_km", "avg_hr_bpm", "max_hr_bpm", "rpe_1_10", "cadence_spm", "shoes", "notes"}
-GARMIN_HEADERS = ("activity_name", "calories", "elevation_gain_m")
+GARMIN_HEADERS = ("activity_id", "activity_name", "garmin_url", "calories", "elevation_gain_m")
 MAX_ATTEMPTS = 4
 
 
@@ -81,7 +81,13 @@ def normalize_activity(activity: dict[str, Any]) -> dict[str, Any] | None:
     duration_min = duration_s / 60
     return {
         "date": activity_date,
+        "activity_id": str(activity.get("activityId", "")),
         "activity_name": activity.get("activityName", ""),
+        "garmin_url": (
+            f"https://connect.garmin.com/modern/activity/{activity['activityId']}"
+            if activity.get("activityId")
+            else ""
+        ),
         "session_type": "",
         "distance_km": round(distance_km, 3),
         "duration_min": round(duration_min, 2),

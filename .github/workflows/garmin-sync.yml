@@ -61,6 +61,20 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
+      - name: Sync Garmin run splits → Google Sheets
+        run: |
+          for attempt in 1 2 3; do
+            python collect_run_details.py && exit 0
+            echo "Run-splits sync attempt ${attempt} failed; retrying in 20 seconds..."
+            sleep 20
+          done
+          exit 1
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+
       - name: Generate charts
         run: |
           for attempt in 1 2 3; do
