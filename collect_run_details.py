@@ -111,24 +111,23 @@ def _sheet(client: gspread.Client) -> gspread.Worksheet:
 
 
 def sync_splits(sheet: gspread.Worksheet, rows: list[dict[str, Any]]) -> None:
-    """Upsert split rows by Garmin activity ID and split number."""
-    existing = sheet.get_all_values()
-    existing_keys = {
-        (values[0], values[3]): index + 2
-        for index, values in enumerate(existing[1:])
-        if len(values) > 3 and values[0] and values[3]
-    }
+    """Batch-replace recent split rows, avoiding Sheets write-rate limits."""
     print("Run Splits column mapping (dry-run):")
     for index, header in enumerate(HEADERS, start=1):
         print(f"  {index}: {header} [Garmin]")
-    for row in rows:
-        values = [row.get(header, "") for header in HEADERS]
-        key = (str(row["activity_id"]), str(row["split_number"]))
-        row_number = existing_keys.get(key)
-        if row_number is None:
-            sheet.append_row(values)
-        else:
-            sheet.update(f"A{row_number}", [values])
+    values = [[row.get(header, "") for header in HEADERS] for row in rows]
+    sheet.batch_clear([f"A2:{_column_letter(len(HEADERS))}{max(sheet.row_count, len(values) + 1)}"])
+    if values:
+        sheet.update(values, range_name="A2")
+
+
+def _column_letter(column_number: int) -> str:
+    """Convert a one-based column number to its Sheets letter."""
+    letters = ""
+    while column_number:
+        column_number, remainder = divmod(column_number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
 
 
 def main() -> None:
