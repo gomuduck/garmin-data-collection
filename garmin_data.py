@@ -56,7 +56,12 @@ def fetch_sleep_data(days: int = 30) -> list[dict]:
     """
     gc = get_sheets_client()
     sheet = gc.open_by_key(SPREADSHEET_ID).worksheet("Daily")
-    records = sheet.get_all_records()
+    # The Daily tab has intentionally blank spacer columns in its header row.
+    # Build records from raw values so newer gspread versions do not reject
+    # those repeated blank headers.
+    values = sheet.get_all_values()
+    headers = values[0] if values else []
+    records = [dict(zip(headers, row)) for row in values[1:]]
 
     rows = []
     for r in records:
