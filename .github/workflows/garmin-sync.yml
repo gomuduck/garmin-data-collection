@@ -1,14 +1,18 @@
 name: Garmin Data Sync
 
+concurrency:
+  group: garmin-data-sync
+  cancel-in-progress: false
+
 on:
   schedule:
-    - cron: '0 7 * * *'  # 9 AM CEST (UTC+2, summer)
-    - cron: '0 8 * * *'  # 9 AM CET  (UTC+1, winter)
+    - cron: '0 22 * * *'  # 8 AM Australia/Brisbane (UTC+10)
   workflow_dispatch:       # allow manual trigger from GitHub UI
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write  # needed to push updated charts back to the repo
 
@@ -28,7 +32,7 @@ jobs:
           echo "${{ secrets.GARMIN_TOKENS }}" | base64 --decode > ~/.garminconnect/garmin_tokens.json
           chmod 600 ~/.garminconnect/garmin_tokens.json
 
-      - name: Sync Garmin → Google Sheets
+      - name: Sync Garmin sleep and HRV → Google Sheets
         run: python collect.py
         env:
           GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
@@ -36,13 +40,13 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
-      - name: Save refreshed Garmin token
-        run: |
-          UPDATED=$(base64 < ~/.garminconnect/garmin_tokens.json | tr -d '\n')
-          gh secret set GARMIN_TOKENS --body "$UPDATED"
+      - name: Sync Garmin runs → Google Sheets
+        run: python collect_runs.py
         env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
 
       - name: Generate charts
         run: python garmin_sleep_consistency.py

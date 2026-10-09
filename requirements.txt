@@ -4,3 +4,4 @@ curl_cffi
 gspread
 google-auth
 plotly
+pytest

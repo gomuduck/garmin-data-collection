@@ -1,6 +1,6 @@
 # Garmin Data Collection
 
-Automatically collects daily sleep and health data from Garmin Connect, syncs it to Google Sheets, and publishes an interactive sleep consistency chart to GitHub Pages — ready to embed in Notion or any iframe-capable tool.
+Automatically collects daily sleep, HRV, recovery, and running data from Garmin Connect, syncs it to Google Sheets, and publishes an interactive sleep consistency chart to GitHub Pages — ready to embed in Notion or any iframe-capable tool.
 
 **Live chart:** `https://<your-username>.github.io/<your-repo>/sleep_consistency.html`
 
@@ -8,9 +8,10 @@ Automatically collects daily sleep and health data from Garmin Connect, syncs it
 
 ## What it does
 
-- Runs daily via GitHub Actions (8 AM CET / 9 AM CEST)
+- Runs daily via GitHub Actions at 8 AM Australia/Brisbane time
 - Collects sleep + HRV data for yesterday and today from Garmin Connect
-- Writes/updates rows in a Google Sheet (usable as a Looker Studio data source)
+- Collects the last 30 days of running, treadmill, and trail-running activities
+- Writes/updates rows in the `Daily` and `Runs` tabs of a Google Sheet
 - Regenerates an interactive Plotly chart and publishes it to GitHub Pages
 
 ---
@@ -20,7 +21,8 @@ Automatically collects daily sleep and health data from Garmin Connect, syncs it
 ```
 GitHub Actions (daily, 7 AM UTC)
     │
-    ├── collect.py          → Garmin Connect API → Google Sheets (Sleep tab)
+    ├── collect.py          → Garmin Connect API → Google Sheets (Daily tab)
+    ├── collect_runs.py     → Garmin Connect API → Google Sheets (Runs tab)
     │
     └── garmin_sleep_consistency.py
             │
@@ -29,7 +31,7 @@ GitHub Actions (daily, 7 AM UTC)
                     └── docs/sleep_consistency.html → GitHub Pages
 ```
 
-The Garmin API is called **once per day** by `collect.py`. All plotting scripts read from Google Sheets so there are no redundant API calls.
+The Garmin API is called only by the two daily collection steps. All plotting scripts read from Google Sheets so there are no redundant API calls.
 
 ---
 
@@ -78,7 +80,7 @@ Copy the printed base64 string — you'll need it in step 6.
 2. Enable the **Google Sheets API** for the project
 3. Go to **IAM & Admin → Service Accounts → Create service account** (no roles needed)
 4. On the service account page: **Keys → Add Key → Create new key → JSON** — download the file and save it as `credentials.json` in the project root (it is gitignored)
-5. Create a Google Sheet and add a tab named exactly `Sleep`
+5. Create a Google Sheet with tabs named `Runs`, `Daily`, `Tests`, and `Weekly`
 6. Share the sheet with the service account email (e.g. `name@project.iam.gserviceaccount.com`) — give it **Editor** access
 7. Copy the spreadsheet ID from the URL: `docs.google.com/spreadsheets/d/`**`SPREADSHEET_ID`**`/edit`
 
@@ -106,7 +108,7 @@ Go to your GitHub repo → **Settings → Secrets and variables → Actions** an
 | `GOOGLE_CREDENTIALS_JSON` | full contents of `credentials.json` |
 | `SPREADSHEET_ID` | your Google Sheet ID |
 
-`GARMIN_EMAIL` and `GARMIN_PASSWORD` are stored as a fallback for re-authentication if the token is ever invalidated (e.g. after a password change).
+`GARMIN_EMAIL` and `GARMIN_PASSWORD` are used only as a fallback if the cached token is invalid or expired. No additional token-maintenance secret is required.
 
 ### 7. Enable GitHub Pages
 
@@ -130,6 +132,7 @@ Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and 
 ├── auth_setup.py                  # One-time local Garmin authentication
 ├── export_token.py                # Exports saved token as base64 for GitHub secret
 ├── collect.py                     # Daily sync: Garmin → Google Sheets
+├── collect_runs.py                # 30-day running activity sync → Runs tab
 ├── backfill.py                    # One-time historical import
 ├── garmin_data.py                 # Shared data layer — reads from Google Sheets
 ├── garmin_sleep_consistency.py    # Generates sleep window chart → docs/
@@ -138,6 +141,7 @@ Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and 
 │   └── sleep_consistency.html    # Published chart (GitHub Pages)
 ├── requirements.txt
 ├── .gitignore                     # Excludes credentials.json, .venv, *.json
+├── test_collect_runs.py            # Run normalization and sheet-preservation tests
 └── .github/
     └── workflows/
         └── garmin-sync.yml        # Daily GitHub Actions workflow
@@ -145,11 +149,11 @@ Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and 
 
 ---
 
-## Data collected (Google Sheets — Sleep tab)
+## Data collected (Google Sheets — Daily tab)
 
 | Column | Description |
 |---|---|
-| `date` | Calendar date (local timezone, Europe/Amsterdam) |
+| `date` | Calendar date (local timezone, Australia/Brisbane) |
 | `sleep_start_local` | Bedtime in local time |
 | `sleep_end_local` | Wake time in local time |
 | `total_sleep_seconds` | Total sleep duration |
@@ -173,6 +177,36 @@ Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and 
 
 ---
 
+## Data collected (Google Sheets — Runs tab)
+
+The sync reads the existing row-1 headers before writing. If the Garmin-owned
+columns `activity_name`, `calories`, or `elevation_gain_m` are missing, the
+workflow appends those headers automatically. It then prints the resolved
+column mapping before any activity rows are written.
+
+| Column | Owner | Description |
+|---|---|---|
+| `date` | Garmin | Activity date in Australia/Brisbane |
+| `activity_name` | Garmin | Garmin activity name |
+| `session_type` | Manual/planning | Left blank for new Garmin rows |
+| `distance_km` | Garmin | Distance in kilometres |
+| `duration_min` | Garmin | Duration in minutes |
+| `avg_pace_min_km` | Garmin | Average pace in minutes per kilometre |
+| `avg_hr_bpm` | Garmin | Average heart rate |
+| `max_hr_bpm` | Garmin | Maximum heart rate |
+| `rpe_1_10` | Manual-only | Your perceived effort; never overwritten |
+| `cadence_spm` | Garmin | Average running cadence |
+| `shoes` | Manual-only | Shoes used; never overwritten |
+| `notes` | Manual-only | Training notes; never overwritten |
+| `calories` | Garmin | Activity calories |
+| `elevation_gain_m` | Garmin | Elevation gain in metres |
+
+Activities are filtered to `running`, `treadmill_running`, and `trail_running`.
+Rows are matched using local date plus distance, so rerunning the workflow does
+not duplicate the same activity. If two activities share both values, the
+current sheet schema cannot distinguish them; adding a Garmin activity ID later
+would make that key fully stable.
+
 ## Adding new plots
 
 `garmin_data.py` is the shared data layer. To add a new visualisation:
@@ -193,9 +227,9 @@ Trigger a manual run from **Actions → Garmin Data Sync → Run workflow** and 
 
 ## Timezone
 
-All dates and times are stored in **Europe/Amsterdam** (CET/CEST). The timezone offset (UTC+1 in winter, UTC+2 in summer) is handled automatically by Python's `zoneinfo` module — DST transitions require no manual intervention.
+All dates and times are stored in **Australia/Brisbane** (UTC+10). Python's `zoneinfo` module handles the conversion from Garmin timestamps consistently.
 
-If you are in a different timezone, update `LOCAL_TZ` in [garmin_data.py](garmin_data.py) and [collect.py](collect.py).
+If you are in a different timezone, update `LOCAL_TZ` in [garmin_data.py](garmin_data.py), [collect.py](collect.py), and [collect_runs.py](collect_runs.py).
 
 ---
 
