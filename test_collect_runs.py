@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from collect_run_details import compute_accurate_splits, normalize_split
+from collect_run_details import compute_accurate_splits, normalize_split, summarize_segments
 from collect_runs import normalize_activity, sync_runs
 
 
@@ -137,3 +137,16 @@ def test_compute_accurate_splits_interpolates_gps_distance_boundaries() -> None:
     assert [split["split_number"] for split in splits] == [1, 2]
     assert [split["duration_min"] for split in splits] == [4.55, 4.95]
     assert splits[0]["split_source"] == "gps_sensor"
+
+
+def test_summarize_segments_exposes_labeled_work_blocks() -> None:
+    summary = summarize_segments([
+        {"segment_type": "warmup", "distance_km": 2.0, "duration_min": 12.0},
+        {"segment_type": "work", "distance_km": 5.0, "duration_min": 25.0},
+        {"segment_type": "cooldown", "distance_km": 1.0, "duration_min": 6.0},
+    ])
+    assert summary["detail_split_count"] == 3
+    assert summary["detail_avg_pace_min_km"] == 5.38
+    assert summary["warmup_distance_km"] == 2.0
+    assert summary["work_duration_min"] == 25.0
+    assert summary["cooldown_distance_km"] == 1.0

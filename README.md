@@ -214,6 +214,14 @@ column mapping before any activity rows are written.
 | `calories` | Garmin | Activity calories |
 | `elevation_gain_m` | Garmin | Elevation gain in metres |
 | `pace_source` | Garmin | `gps_sensor_splits` or `garmin_summary` |
+| `detail_split_count` | Garmin | Number of detailed lap/GPS splits written to `Run Splits` |
+| `detail_distance_km` | Garmin | Total distance represented by the detailed splits |
+| `detail_duration_min` | Garmin | Total duration represented by the detailed splits |
+| `detail_avg_pace_min_km` | Garmin | Pace calculated from detailed split totals |
+| `warmup_distance_km` / `warmup_duration_min` | Garmin | Labeled Garmin warm-up total; blank when not labeled |
+| `work_distance_km` / `work_duration_min` | Garmin | Labeled active/work/interval/threshold total |
+| `cooldown_distance_km` / `cooldown_duration_min` | Garmin | Labeled Garmin cool-down total; blank when not labeled |
+| `detail_source` | Garmin | `gps_sensor` or `garmin_lap` |
 
 Activities are filtered to `running`, `treadmill_running`, and `trail_running`.
 Rows are matched using local date plus distance, so rerunning the workflow does
@@ -230,9 +238,11 @@ available. Segment labels such as `warmup`, `interval`, `recovery`, and
 the sync guessing incorrectly. For activities with only one Garmin lap, the
 sync requests time-series GPS/sensor data and interpolates exact kilometre
 boundaries. Those rows are marked `gps_sensor`; raw Garmin laps are marked
-`garmin_lap`. Rows are matched by activity ID plus split number. This gives the
-coach detailed pacing without putting raw GPS points into the main `Runs` tab;
-open `garmin_url` for the route map.
+`garmin_lap`. Rows are matched by activity ID plus split number. The main `Runs`
+tab also shows detailed split totals and labeled warm-up/work/cool-down totals.
+Blank segment totals mean Garmin did not provide a label; the sync does not guess
+from pace. The Garmin URL is supplemental route-map context, not the source of
+the logged metrics.
 
 ## Adding new plots
 

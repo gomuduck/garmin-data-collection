@@ -40,7 +40,9 @@ HEADERS = (
     "split_source",
     "is_partial",
 )
-SEGMENT_FIELDS = ("purposeTypeKey", "purpose", "intensity", "lapType", "workoutStepLabel", "message")
+SEGMENT_FIELDS = (
+    "purposeTypeKey", "purpose", "intensityType", "intensity", "lapType", "workoutStepLabel", "message"
+)
 SEGMENT_NAMES = {
     "warmup": "warmup",
     "warm_up": "warmup",
@@ -50,6 +52,8 @@ SEGMENT_NAMES = {
     "interval": "interval",
     "threshold": "threshold",
     "rest": "recovery",
+    "active": "work",
+    "work": "work",
 }
 
 
@@ -61,6 +65,31 @@ def _segment_type(split: dict[str, Any]) -> str:
             value = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
             return SEGMENT_NAMES.get(value, value)
     return ""
+
+
+def summarize_segments(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build visible Runs-tab totals from labeled detailed split rows."""
+    summary: dict[str, Any] = {
+        "detail_split_count": len(rows),
+        "detail_distance_km": round(sum(float(row.get("distance_km") or 0) for row in rows), 3),
+        "detail_duration_min": round(sum(float(row.get("duration_min") or 0) for row in rows), 2),
+        "warmup_distance_km": "", "warmup_duration_min": "",
+        "work_distance_km": "", "work_duration_min": "",
+        "cooldown_distance_km": "", "cooldown_duration_min": "",
+    }
+    if summary["detail_distance_km"]:
+        summary["detail_avg_pace_min_km"] = round(summary["detail_duration_min"] / summary["detail_distance_km"], 2)
+    else:
+        summary["detail_avg_pace_min_km"] = ""
+    for label, prefix in (("warmup", "warmup"), ("work", "work"), ("threshold", "work"), ("interval", "work"), ("cooldown", "cooldown")):
+        matching = [row for row in rows if row.get("segment_type") == label]
+        if not matching:
+            continue
+        distance = round(sum(float(row.get("distance_km") or 0) for row in matching), 3)
+        duration = round(sum(float(row.get("duration_min") or 0) for row in matching), 2)
+        summary[f"{prefix}_distance_km"] = round(float(summary[f"{prefix}_distance_km"] or 0) + distance, 3)
+        summary[f"{prefix}_duration_min"] = round(float(summary[f"{prefix}_duration_min"] or 0) + duration, 2)
+    return summary
 
 
 def normalize_split(
@@ -243,8 +272,15 @@ def _update_run_summaries(client: gspread.Client, overrides: dict[str, dict[str,
         if not override:
             continue
         padded = row + [""] * (len(headers) - len(row))
-        for field in ("distance_km", "duration_min", "avg_pace_min_km", "pace_source"):
-            padded[headers.index(field)] = override[field]
+        for field in (
+            "distance_km", "duration_min", "avg_pace_min_km", "pace_source",
+            "detail_split_count", "detail_distance_km", "detail_duration_min",
+            "detail_avg_pace_min_km", "warmup_distance_km", "warmup_duration_min",
+            "work_distance_km", "work_duration_min", "cooldown_distance_km",
+            "cooldown_duration_min", "detail_source",
+        ):
+            if field in headers and field in override:
+                padded[headers.index(field)] = override[field]
         values[row_index] = padded
     sheet.update(values[1:], range_name="A2")
 
@@ -292,11 +328,14 @@ def main() -> None:
         if selected_rows:
             distance_km = sum(float(row["distance_km"]) for row in selected_rows)
             duration_min = sum(float(row["duration_min"]) for row in selected_rows)
+            detail_summary = summarize_segments(selected_rows)
             summary_overrides[activity_id] = {
                 "distance_km": round(distance_km, 3),
                 "duration_min": round(duration_min, 2),
                 "avg_pace_min_km": round(duration_min / distance_km, 2),
                 "pace_source": "gps_sensor_splits" if accurate_rows else "garmin_lap_splits",
+                **detail_summary,
+                "detail_source": "gps_sensor" if accurate_rows else "garmin_lap",
             }
     print(f"Found {len(rows)} running splits in the last 30 days.")
     if rows:

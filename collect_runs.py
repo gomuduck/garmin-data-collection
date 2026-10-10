@@ -19,7 +19,12 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 SHEET_NAME = "Runs"
 RUN_TYPES = {"running", "treadmill_running", "trail_running"}
 REQUIRED_HEADERS = {"date", "session_type", "distance_km", "duration_min", "avg_pace_min_km", "avg_hr_bpm", "max_hr_bpm", "rpe_1_10", "cadence_spm", "shoes", "notes"}
-GARMIN_HEADERS = ("activity_id", "activity_name", "garmin_url", "calories", "elevation_gain_m", "pace_source")
+GARMIN_HEADERS = (
+    "activity_id", "activity_name", "garmin_url", "calories", "elevation_gain_m", "pace_source",
+    "detail_split_count", "detail_distance_km", "detail_duration_min", "detail_avg_pace_min_km",
+    "warmup_distance_km", "warmup_duration_min", "work_distance_km", "work_duration_min",
+    "cooldown_distance_km", "cooldown_duration_min", "detail_source",
+)
 MAX_ATTEMPTS = 4
 
 
