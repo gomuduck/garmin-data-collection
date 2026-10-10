@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from math import isfinite
 from typing import Any
 
 import gspread
@@ -18,6 +19,7 @@ from collect_runs import (
     _activity_date,
     _number,
     _retry,
+    _prepare_headers,
     get_sheets_client,
 )
 
@@ -35,6 +37,8 @@ HEADERS = (
     "max_hr_bpm",
     "cadence_spm",
     "elevation_gain_m",
+    "split_source",
+    "is_partial",
 )
 SEGMENT_FIELDS = ("purposeTypeKey", "purpose", "intensity", "lapType", "workoutStepLabel", "message")
 SEGMENT_NAMES = {
@@ -79,6 +83,8 @@ def normalize_split(
         "activity_name": activity_name,
         "split_number": split_number,
         "segment_type": _segment_type(raw),
+        "split_source": "garmin_lap",
+        "is_partial": False,
         "distance_km": round(distance_km, 3),
         "duration_min": round(duration_min, 2),
         "pace_min_km": round(duration_min / distance_km, 2),
@@ -87,6 +93,96 @@ def normalize_split(
         "cadence_spm": raw.get("averageRunCadence") or raw.get("averageCadence"),
         "elevation_gain_m": raw.get("elevationGain"),
     }
+
+
+def compute_accurate_splits(
+    details: dict[str, Any], activity_id: str, activity_date: str, activity_name: str
+) -> list[dict[str, Any]]:
+    """Compute kilometre splits by interpolating Garmin GPS/sensor samples."""
+    descriptors = details.get("metricDescriptors") or []
+    indices = {
+        str(item.get("key")): item.get("metricsIndex")
+        for item in descriptors
+        if isinstance(item, dict) and isinstance(item.get("metricsIndex"), int)
+    }
+    distance_index = indices.get("sumDistance")
+    time_index = next(
+        (indices[key] for key in ("sumMovingDuration", "sumDuration", "sumElapsedDuration") if indices.get(key) is not None),
+        None,
+    )
+    samples: list[tuple[float, float]] = []
+    for entry in details.get("activityDetailMetrics") or []:
+        metrics = entry.get("metrics", []) if isinstance(entry, dict) else []
+        if not isinstance(distance_index, int) or not isinstance(time_index, int):
+            continue
+        if max(distance_index, time_index) >= len(metrics):
+            continue
+        time_value = _number(metrics[time_index])
+        distance_value = _number(metrics[distance_index])
+        if time_value is not None and distance_value is not None:
+            samples.append((time_value, distance_value))
+    samples = sorted((time, distance) for time, distance in samples if isfinite(time) and isfinite(distance))
+    if len(samples) < 2 or samples[-1][1] < 1000:
+        return []
+
+    def time_at_distance(target: float) -> float:
+        for (time_a, distance_a), (time_b, distance_b) in zip(samples, samples[1:]):
+            if distance_a <= target <= distance_b:
+                if distance_b == distance_a:
+                    return time_a
+                ratio = (target - distance_a) / (distance_b - distance_a)
+                return time_a + ratio * (time_b - time_a)
+        return samples[-1][0]
+
+    total_distance = samples[-1][1]
+    complete_splits = int(total_distance // 1000)
+    rows: list[dict[str, Any]] = []
+    previous_time = 0.0
+    for split_number in range(1, complete_splits + 1):
+        split_time = time_at_distance(split_number * 1000)
+        duration_seconds = split_time - previous_time
+        rows.append(
+            {
+                "activity_id": activity_id,
+                "date": activity_date,
+                "activity_name": activity_name,
+                "split_number": split_number,
+                "segment_type": "",
+                "split_source": "gps_sensor",
+                "is_partial": False,
+                "distance_km": 1.0,
+                "duration_min": round(duration_seconds / 60, 2),
+                "pace_min_km": round(duration_seconds / 60, 2),
+                "avg_hr_bpm": None,
+                "max_hr_bpm": None,
+                "cadence_spm": None,
+                "elevation_gain_m": None,
+            }
+        )
+        previous_time = split_time
+    remaining_distance = total_distance - complete_splits * 1000
+    if remaining_distance >= 100:
+        duration_seconds = samples[-1][0] - previous_time
+        distance_km = remaining_distance / 1000
+        rows.append(
+            {
+                "activity_id": activity_id,
+                "date": activity_date,
+                "activity_name": activity_name,
+                "split_number": complete_splits + 1,
+                "segment_type": "",
+                "split_source": "gps_sensor",
+                "is_partial": True,
+                "distance_km": round(distance_km, 3),
+                "duration_min": round(duration_seconds / 60, 2),
+                "pace_min_km": round(duration_seconds / 60 / distance_km, 2),
+                "avg_hr_bpm": None,
+                "max_hr_bpm": None,
+                "cadence_spm": None,
+                "elevation_gain_m": None,
+            }
+        )
+    return rows
 
 
 def _split_items(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -130,6 +226,29 @@ def _column_letter(column_number: int) -> str:
     return letters
 
 
+def _update_run_summaries(client: gspread.Client, overrides: dict[str, dict[str, Any]]) -> None:
+    """Replace summary pace with GPS-derived totals when available."""
+    if not overrides:
+        return
+    sheet = client.open_by_key(SPREADSHEET_ID).worksheet("Runs")
+    headers = _prepare_headers(sheet)
+    values = sheet.get_all_values()
+    if len(values) < 2 or "activity_id" not in headers:
+        return
+    id_index = headers.index("activity_id")
+    for row_index, row in enumerate(values[1:], start=1):
+        if len(row) <= id_index:
+            continue
+        override = overrides.get(str(row[id_index]))
+        if not override:
+            continue
+        padded = row + [""] * (len(headers) - len(row))
+        for field in ("distance_km", "duration_min", "avg_pace_min_km", "pace_source"):
+            padded[headers.index(field)] = override[field]
+        values[row_index] = padded
+    sheet.update(values[1:], range_name="A2")
+
+
 def main() -> None:
     """Fetch recent running laps and sync them to Google Sheets."""
     if not SPREADSHEET_ID:
@@ -143,6 +262,7 @@ def main() -> None:
         "Garmin activity fetch",
     ) or []
     rows: list[dict[str, Any]] = []
+    summary_overrides: dict[str, dict[str, Any]] = {}
     for activity in activities:
         activity_type = (activity.get("activityType") or {}).get("typeKey")
         activity_id = str(activity.get("activityId", ""))
@@ -152,13 +272,37 @@ def main() -> None:
         if not activity_date:
             continue
         payload = _retry(lambda: client.get_activity_splits(activity_id), f"Garmin splits fetch {activity_id}") or {}
-        for split_number, raw in enumerate(_split_items(payload), start=1):
-            split = normalize_split(activity_id, activity_date, str(activity.get("activityName", "")), split_number, raw)
-            if split:
-                rows.append(split)
+        raw_splits = list(_split_items(payload))
+        activity_name = str(activity.get("activityName", ""))
+        accurate_rows: list[dict[str, Any]] = []
+        if len(raw_splits) <= 1:
+            details = _retry(
+                lambda: client.get_activity_details(activity_id, maxchart=2000),
+                f"Garmin detail fetch {activity_id}",
+            ) or {}
+            accurate_rows = compute_accurate_splits(details, activity_id, activity_date, activity_name)
+        selected_rows = accurate_rows
+        if not selected_rows:
+            selected_rows = [
+                split
+                for split_number, raw in enumerate(raw_splits, start=1)
+                if (split := normalize_split(activity_id, activity_date, activity_name, split_number, raw))
+            ]
+        rows.extend(selected_rows)
+        if selected_rows:
+            distance_km = sum(float(row["distance_km"]) for row in selected_rows)
+            duration_min = sum(float(row["duration_min"]) for row in selected_rows)
+            summary_overrides[activity_id] = {
+                "distance_km": round(distance_km, 3),
+                "duration_min": round(duration_min, 2),
+                "avg_pace_min_km": round(duration_min / distance_km, 2),
+                "pace_source": "gps_sensor_splits" if accurate_rows else "garmin_lap_splits",
+            }
     print(f"Found {len(rows)} running splits in the last 30 days.")
     if rows:
-        sync_splits(_sheet(get_sheets_client()), rows)
+        sheets_client = get_sheets_client()
+        sync_splits(_sheet(sheets_client), rows)
+        _update_run_summaries(sheets_client, summary_overrides)
 
 
 if __name__ == "__main__":

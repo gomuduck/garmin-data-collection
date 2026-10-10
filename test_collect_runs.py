@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from collect_run_details import normalize_split
+from collect_run_details import compute_accurate_splits, normalize_split
 from collect_runs import normalize_activity, sync_runs
 
 
@@ -28,6 +28,7 @@ def test_normalize_activity_converts_units_and_brisbane_date() -> None:
         "distance_km": 10.0,
         "duration_min": 45.0,
         "avg_pace_min_km": 4.5,
+        "pace_source": "garmin_summary",
         "avg_hr_bpm": 165,
         "max_hr_bpm": 178,
         "cadence_spm": 182,
@@ -113,4 +114,26 @@ def test_normalize_split_keeps_garmin_lap_metrics_and_segment_label() -> None:
         "max_hr_bpm": 176,
         "cadence_spm": 184,
         "elevation_gain_m": 4,
+        "split_source": "garmin_lap",
+        "is_partial": False,
     }
+
+
+def test_compute_accurate_splits_interpolates_gps_distance_boundaries() -> None:
+    details = {
+        "metricDescriptors": [
+            {"key": "sumDuration", "metricsIndex": 0},
+            {"key": "sumDistance", "metricsIndex": 1},
+        ],
+        "activityDetailMetrics": [
+            {"metrics": [0, 0]},
+            {"metrics": [300, 1100]},
+            {"metrics": [570, 2000]},
+        ],
+    }
+
+    splits = compute_accurate_splits(details, "123", "2026-10-09", "Test run")
+
+    assert [split["split_number"] for split in splits] == [1, 2]
+    assert [split["duration_min"] for split in splits] == [4.55, 4.95]
+    assert splits[0]["split_source"] == "gps_sensor"

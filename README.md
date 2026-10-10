@@ -204,7 +204,7 @@ column mapping before any activity rows are written.
 | `session_type` | Manual/planning | Left blank for new Garmin rows |
 | `distance_km` | Garmin | Distance in kilometres |
 | `duration_min` | Garmin | Duration in minutes |
-| `avg_pace_min_km` | Garmin | Average pace in minutes per kilometre |
+| `avg_pace_min_km` | Garmin | GPS/sensor-derived pace when available; Garmin summary fallback otherwise |
 | `avg_hr_bpm` | Garmin | Average heart rate |
 | `max_hr_bpm` | Garmin | Maximum heart rate |
 | `rpe_1_10` | Manual-only | Your perceived effort; never overwritten |
@@ -213,6 +213,7 @@ column mapping before any activity rows are written.
 | `notes` | Manual-only | Training notes; never overwritten |
 | `calories` | Garmin | Activity calories |
 | `elevation_gain_m` | Garmin | Elevation gain in metres |
+| `pace_source` | Garmin | `gps_sensor_splits` or `garmin_summary` |
 
 Activities are filtered to `running`, `treadmill_running`, and `trail_running`.
 Rows are matched using local date plus distance, so rerunning the workflow does
@@ -226,9 +227,12 @@ The workflow fetches Garmin lap/split data for the last 30 days and creates the
 heart rate, cadence, elevation gain, and Garmin's workout segment label when
 available. Segment labels such as `warmup`, `interval`, `recovery`, and
 `cooldown` are preserved; blank means Garmin did not label that lap, rather than
-the sync guessing incorrectly. Rows are matched by activity ID plus split number.
-This gives the coach detailed pacing without putting raw GPS points into the
-main `Runs` tab; open `garmin_url` for the route map.
+the sync guessing incorrectly. For activities with only one Garmin lap, the
+sync requests time-series GPS/sensor data and interpolates exact kilometre
+boundaries. Those rows are marked `gps_sensor`; raw Garmin laps are marked
+`garmin_lap`. Rows are matched by activity ID plus split number. This gives the
+coach detailed pacing without putting raw GPS points into the main `Runs` tab;
+open `garmin_url` for the route map.
 
 ## Adding new plots
 
